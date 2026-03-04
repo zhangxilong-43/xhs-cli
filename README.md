@@ -1,5 +1,7 @@
 # xhs-cli 🍰
 
+**English** | [中文](README_CN.md)
+
 A command-line tool for [Xiaohongshu (小红书)](https://www.xiaohongshu.com) — search notes, view profiles, like, favorite, and comment, all from your terminal.
 
 ## ✨ Features
