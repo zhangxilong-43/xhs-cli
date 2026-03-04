@@ -137,7 +137,6 @@ def qrcode_login() -> str:
     as a screenshot, opens it with the system image viewer, then polls for
     login completion by checking cookies.
     """
-    import subprocess
     import sys
     import tempfile
     import time
@@ -205,18 +204,9 @@ def qrcode_login() -> str:
             page.screenshot(path=str(qr_path), full_page=False)
             qr_found = True
 
-        # Open the screenshot with system image viewer
-        print(f"\n📱 QR code saved to: {qr_path}")
-        print("Opening QR code image... Please scan with the Xiaohongshu app.")
-        try:
-            if sys.platform == "darwin":
-                subprocess.Popen(["open", str(qr_path)])
-            elif sys.platform == "win32":
-                subprocess.Popen(["start", str(qr_path)], shell=True)
-            else:
-                subprocess.Popen(["xdg-open", str(qr_path)])
-        except Exception:
-            print(f"⚠️  Could not auto-open image. Please open manually: {qr_path}")
+        # Display QR code directly in the terminal
+        print("\n📱 Scan the QR code below with the Xiaohongshu app:\n")
+        _display_image_in_terminal(qr_path)
 
         # Poll for login completion
         print("\n⏳ Waiting for QR code scan...")
@@ -240,6 +230,41 @@ def qrcode_login() -> str:
                 print("  Still waiting...")
 
     raise TimeoutError("QR code login timed out after 4 minutes")
+
+
+def _display_image_in_terminal(image_path):
+    """Display an image directly in the terminal.
+
+    Uses the iTerm2/WezTerm/Kitty inline image protocol (ESC ]1337)
+    which renders images inside the terminal window. Falls back to
+    opening with the system viewer if the protocol is not supported.
+    """
+    import base64
+    import subprocess
+    import sys
+
+    try:
+        with open(image_path, 'rb') as f:
+            image_data = base64.b64encode(f.read()).decode('ascii')
+
+        # iTerm2 / WezTerm inline image protocol
+        # ESC ] 1337 ; File=[args] : base64_data BEL
+        osc = f'\033]1337;File=inline=1;preserveAspectRatio=1;width=40:{image_data}\a'
+        sys.stdout.write(osc)
+        sys.stdout.write('\n')
+        sys.stdout.flush()
+    except Exception:
+        # Fallback: open with system image viewer
+        print(f"QR code saved to: {image_path}")
+        try:
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', str(image_path)])
+            elif sys.platform == 'win32':
+                subprocess.Popen(['start', str(image_path)], shell=True)
+            else:
+                subprocess.Popen(['xdg-open', str(image_path)])
+        except Exception:
+            print(f"Please open manually: {image_path}")
 
 
 def save_cookies(cookie_str: str):
