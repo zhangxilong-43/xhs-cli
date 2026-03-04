@@ -208,6 +208,186 @@ class XhsClient:
             raise RuntimeError(f"Failed to extract user profile for {user_id}")
         return result
 
+    # ===== User Posts =====
+
+    def get_user_posts(self, user_id: str) -> list[dict]:
+        """Get a user's published notes by navigating to their profile page.
+
+        Extracts note list from __INITIAL_STATE__.user.notes which contains
+        the first page of the user's published notes.
+        """
+        url = f"https://www.xiaohongshu.com/user/profile/{user_id}"
+
+        logger.info("Loading user posts: %s", user_id)
+        self._page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        self._human_wait(1.5, 3)
+
+        self._wait_for_initial_state()
+
+        # Extract notes list from user profile state.
+        # Vue wraps arrays in reactive refs, so we unwrap _value recursively.
+        result = self._page.evaluate("""() => {
+            function unwrap(obj, depth) {
+                if (depth > 6 || obj === null || obj === undefined) return obj;
+                if (typeof obj !== 'object') return obj;
+                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
+                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
+                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
+                const result = {};
+                for (const key of Object.keys(obj)) {
+                    if (key === 'dep' || key.startsWith('__')) continue;
+                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
+                }
+                return result;
+            }
+
+            if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
+                const u = window.__INITIAL_STATE__.user;
+                // notes contains the list of user's published notes
+                if (u.notes) {
+                    const notes = unwrap(u.notes, 0);
+                    // notes may be an array directly or wrapped in an object
+                    if (Array.isArray(notes)) return notes;
+                    if (notes && typeof notes === 'object') {
+                        // Try common keys that hold the actual list
+                        for (const key of ['value', '_value', 'data', 'list']) {
+                            if (Array.isArray(notes[key])) return notes[key];
+                        }
+                    }
+                    return notes;
+                }
+            }
+            return null;
+        }""")
+
+        return result if isinstance(result, list) else []
+
+    # ===== Feed (Explore/Recommend) =====
+
+    def get_feed(self) -> list[dict]:
+        """Get recommended feed from the explore page.
+
+        Navigates to xiaohongshu.com/explore and extracts the feed items
+        from __INITIAL_STATE__.feed.
+        """
+        logger.info("Loading explore feed...")
+        self._page.goto(
+            "https://www.xiaohongshu.com/explore",
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+        self._human_wait(2, 4)
+
+        self._wait_for_initial_state()
+
+        # Extract feed from explore page state
+        result = self._page.evaluate("""() => {
+            function unwrap(obj, depth) {
+                if (depth > 6 || obj === null || obj === undefined) return obj;
+                if (typeof obj !== 'object') return obj;
+                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
+                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
+                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
+                const result = {};
+                for (const key of Object.keys(obj)) {
+                    if (key === 'dep' || key.startsWith('__')) continue;
+                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
+                }
+                return result;
+            }
+
+            const state = window.__INITIAL_STATE__;
+            if (!state) return null;
+
+            // Try multiple paths where feed data might live
+            // Path 1: state.feed.feeds (explore page)
+            if (state.feed && state.feed.feeds) {
+                return unwrap(state.feed.feeds, 0);
+            }
+            // Path 2: state.explore.feeds
+            if (state.explore && state.explore.feeds) {
+                return unwrap(state.explore.feeds, 0);
+            }
+            // Path 3: state.homefeed
+            if (state.homefeed && state.homefeed.feeds) {
+                return unwrap(state.homefeed.feeds, 0);
+            }
+            return null;
+        }""")
+
+        if not result:
+            logger.warning("No feed data found in __INITIAL_STATE__")
+            return []
+
+        # result could be an array or an object wrapping an array
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            for key in ("value", "_value", "data", "list"):
+                if key in result and isinstance(result[key], list):
+                    return result[key]
+        return []
+
+    # ===== Topics / Hashtags =====
+
+    def search_topics(self, keyword: str) -> list[dict]:
+        """Search for topic/hashtag pages.
+
+        Navigates to the search page with type=topic filter and extracts
+        topic results from __INITIAL_STATE__.
+        """
+        import urllib.parse
+        params = urllib.parse.urlencode({
+            "keyword": keyword,
+            "source": "web_explore_feed",
+            "type": "topic",
+        })
+        url = f"https://www.xiaohongshu.com/search_result?{params}"
+
+        logger.info("Searching topics: %s", keyword)
+        self._page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        self._human_wait(1.5, 3)
+
+        self._wait_for_initial_state()
+
+        # Extract topic search results
+        result = self._page.evaluate("""() => {
+            function unwrap(obj, depth) {
+                if (depth > 6 || obj === null || obj === undefined) return obj;
+                if (typeof obj !== 'object') return obj;
+                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
+                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
+                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
+                const result = {};
+                for (const key of Object.keys(obj)) {
+                    if (key === 'dep' || key.startsWith('__')) continue;
+                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
+                }
+                return result;
+            }
+
+            const state = window.__INITIAL_STATE__;
+            if (!state || !state.search) return null;
+
+            // Topics may be in search.feeds or search.topics
+            const search = state.search;
+            if (search.topics) return unwrap(search.topics, 0);
+            if (search.feeds) return unwrap(search.feeds, 0);
+            return null;
+        }""")
+
+        if not result:
+            logger.warning("No topic results found")
+            return []
+
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            for key in ("value", "_value", "data", "list"):
+                if key in result and isinstance(result[key], list):
+                    return result[key]
+        return []
+
     # ===== Self Info =====
 
     def get_self_info(self) -> dict:

@@ -5,8 +5,11 @@ Usage:
     xhs status
     xhs search "咖啡"
     xhs search "咖啡" --json
-    xhs note <note_id> [--xsec-token <token>] [--json]
-    xhs warmup
+    xhs read <note_id> [--xsec-token <token>] [--json]
+    xhs user <user_id> [--json]
+    xhs user-posts <user_id> [--json]
+    xhs feed [--json]
+    xhs topics <keyword> [--json]
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .auth import get_cookie_string, qrcode_login
+from .auth import get_cookie_string, load_xsec_token, qrcode_login, save_token_cache
 from .exceptions import XhsError
 
 console = Console()
@@ -138,6 +141,17 @@ def search(keyword: str, as_json: bool):
         client = _get_client()
         feeds = client.search_notes(keyword)
 
+        # Cache note_id -> xsec_token mapping so subsequent commands
+        # (note, like, favorite, comment) can auto-resolve tokens.
+        token_map = {}
+        for item in feeds:
+            nid = item.get("id", "")
+            xsec = item.get("xsec_token", item.get("xsecToken", ""))
+            if nid and xsec:
+                token_map[nid] = xsec
+        if token_map:
+            save_token_cache(token_map)
+
         if as_json:
             click.echo(json.dumps(feeds, indent=2, ensure_ascii=False))
             client.close()
@@ -154,25 +168,23 @@ def search(keyword: str, as_json: bool):
         table.add_column("Author", style="green", max_width=15)
         table.add_column("Likes", style="red", justify="right")
         table.add_column("Note ID", style="dim")
-        table.add_column("xsec_token", style="dim", max_width=20)
 
         for i, item in enumerate(feeds, 1):
             card = item.get("note_card", item.get("noteCard", {}))
             user = card.get("user", {})
             interact = card.get("interact_info", card.get("interactInfo", {}))
             note_id = item.get("id", "")
-            xsec = item.get("xsec_token", item.get("xsecToken", ""))
             table.add_row(
                 str(i),
                 card.get("display_title", card.get("displayTitle", ""))[:40],
                 user.get("nickname", user.get("nick_name", ""))[:15],
                 str(interact.get("liked_count", interact.get("likedCount", "0"))),
                 note_id,
-                xsec[:20] if xsec else "",
             )
 
         console.print(table)
-        console.print(f"\n[dim]Use `xhs note <Note ID> --xsec-token <token>` to view details[/dim]")
+        # xsec_token is cached automatically, no need to show it in the table
+        console.print(f"\n[dim]Use `xhs read <Note ID>` to view details (xsec_token auto-resolved)[/dim]")
         client.close()
 
     except Exception as e:
@@ -180,15 +192,18 @@ def search(keyword: str, as_json: bool):
         sys.exit(1)
 
 
-# ===== Note Detail =====
+# ===== Read Note Detail =====
 
 @cli.command()
 @click.argument("note_id")
 @click.option("--xsec-token", default="", help="xsec_token from search results")
 @click.option("--comments", is_flag=True, help="Include comments")
 @click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
-def note(note_id: str, xsec_token: str, comments: bool, as_json: bool):
+def read(note_id: str, xsec_token: str, comments: bool, as_json: bool):
     """Get note detail by ID."""
+    # Auto-resolve xsec_token from cache if not provided
+    if not xsec_token:
+        xsec_token = load_xsec_token(note_id)
     try:
         client = _get_client()
         detail = client.get_note_detail(note_id, xsec_token)
@@ -253,6 +268,182 @@ def user(user_id: str, as_json: bool):
         sys.exit(1)
 
 
+# ===== User Posts =====
+
+@cli.command("user-posts")
+@click.argument("user_id")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def user_posts(user_id: str, as_json: bool):
+    """List a user's published notes."""
+    try:
+        client = _get_client()
+        posts = client.get_user_posts(user_id)
+
+        if as_json:
+            click.echo(json.dumps(posts, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        if not posts:
+            console.print("[yellow]No posts found.[/yellow]")
+            client.close()
+            return
+
+        table = Table(title=f"User {user_id} Posts ({len(posts)} notes)")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Title", style="cyan", max_width=40)
+        table.add_column("Likes", style="red", justify="right")
+        table.add_column("Type", style="magenta", width=6)
+        table.add_column("Note ID", style="dim")
+
+        # Cache xsec_tokens from user posts for later use
+        token_map = {}
+        for i, item in enumerate(posts, 1):
+            # Handle different data shapes from __INITIAL_STATE__
+            note_card = item.get("note_card", item.get("noteCard", item))
+            interact = note_card.get("interact_info", note_card.get("interactInfo", {}))
+            note_id = item.get("id", item.get("note_id", item.get("noteId", "")))
+            xsec = item.get("xsec_token", item.get("xsecToken", ""))
+            note_type = note_card.get("type", "")
+            # "normal" = image post, "video" = video post
+            type_label = "📹" if note_type == "video" else "📷"
+
+            if note_id and xsec:
+                token_map[note_id] = xsec
+
+            table.add_row(
+                str(i),
+                note_card.get("display_title", note_card.get("displayTitle", ""))[:40],
+                str(interact.get("liked_count", interact.get("likedCount", "0"))),
+                type_label,
+                note_id,
+            )
+
+        if token_map:
+            save_token_cache(token_map)
+
+        console.print(table)
+        console.print(f"\n[dim]Use `xhs read <Note ID>` to view details[/dim]")
+        client.close()
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get user posts: {e}[/red]")
+        sys.exit(1)
+
+
+# ===== Feed =====
+
+@cli.command()
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def feed(as_json: bool):
+    """Get recommended feed from explore page."""
+    try:
+        client = _get_client()
+        feeds = client.get_feed()
+
+        # Cache xsec_tokens from feed for later use
+        token_map = {}
+        for item in feeds:
+            nid = item.get("id", "")
+            xsec = item.get("xsec_token", item.get("xsecToken", ""))
+            if nid and xsec:
+                token_map[nid] = xsec
+        if token_map:
+            save_token_cache(token_map)
+
+        if as_json:
+            click.echo(json.dumps(feeds, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        if not feeds:
+            console.print("[yellow]No feed items found.[/yellow]")
+            client.close()
+            return
+
+        table = Table(title=f"Explore Feed ({len(feeds)} items)")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Title", style="cyan", max_width=40)
+        table.add_column("Author", style="green", max_width=15)
+        table.add_column("Likes", style="red", justify="right")
+        table.add_column("Note ID", style="dim")
+
+        for i, item in enumerate(feeds, 1):
+            card = item.get("note_card", item.get("noteCard", {}))
+            u = card.get("user", {})
+            interact = card.get("interact_info", card.get("interactInfo", {}))
+            note_id = item.get("id", "")
+            table.add_row(
+                str(i),
+                card.get("display_title", card.get("displayTitle", ""))[:40],
+                u.get("nickname", u.get("nick_name", ""))[:15],
+                str(interact.get("liked_count", interact.get("likedCount", "0"))),
+                note_id,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Use `xhs read <Note ID>` to view details[/dim]")
+        client.close()
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get feed: {e}[/red]")
+        sys.exit(1)
+
+
+# ===== Topics =====
+
+@cli.command()
+@click.argument("keyword")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def topics(keyword: str, as_json: bool):
+    """Search for topics/hashtags."""
+    try:
+        client = _get_client()
+        results = client.search_topics(keyword)
+
+        if as_json:
+            click.echo(json.dumps(results, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        if not results:
+            console.print("[yellow]No topics found.[/yellow]")
+            client.close()
+            return
+
+        table = Table(title=f"Topics: {keyword} ({len(results)} results)")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Topic", style="cyan", max_width=30)
+        table.add_column("View Count", style="yellow", justify="right")
+        table.add_column("Note Count", style="green", justify="right")
+        table.add_column("ID", style="dim")
+
+        for i, item in enumerate(results, 1):
+            # Topics may have different structure than notes
+            name = (item.get("name", "") or
+                    item.get("title", "") or
+                    item.get("display_title", item.get("displayTitle", "")))
+            topic_id = item.get("id", item.get("topicId", item.get("topic_id", "")))
+            view_count = item.get("view_count", item.get("viewCount",
+                         item.get("view_num", item.get("viewNum", ""))))
+            note_count = item.get("note_count", item.get("noteCount",
+                         item.get("note_num", item.get("noteNum", ""))))
+            table.add_row(
+                str(i),
+                str(name)[:30],
+                str(view_count) if view_count else "-",
+                str(note_count) if note_count else "-",
+                str(topic_id),
+            )
+
+        console.print(table)
+        client.close()
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to search topics: {e}[/red]")
+        sys.exit(1)
+
+
 # ===== Interactions =====
 
 @cli.command()
@@ -261,6 +452,9 @@ def user(user_id: str, as_json: bool):
 @click.option("--undo", is_flag=True, help="Unlike instead of like")
 def like(note_id: str, xsec_token: str, undo: bool):
     """Like or unlike a note."""
+    # Auto-resolve xsec_token from cache if not provided
+    if not xsec_token:
+        xsec_token = load_xsec_token(note_id)
     try:
         client = _get_client()
         if undo:
@@ -281,6 +475,9 @@ def like(note_id: str, xsec_token: str, undo: bool):
 @click.option("--undo", is_flag=True, help="Unfavorite instead of favorite")
 def favorite(note_id: str, xsec_token: str, undo: bool):
     """Favorite or unfavorite a note."""
+    # Auto-resolve xsec_token from cache if not provided
+    if not xsec_token:
+        xsec_token = load_xsec_token(note_id)
     try:
         client = _get_client()
         if undo:
@@ -301,6 +498,9 @@ def favorite(note_id: str, xsec_token: str, undo: bool):
 @click.option("--xsec-token", default="", help="xsec_token from search results")
 def comment(note_id: str, content: str, xsec_token: str):
     """Post a comment on a note."""
+    # Auto-resolve xsec_token from cache if not provided
+    if not xsec_token:
+        xsec_token = load_xsec_token(note_id)
     try:
         client = _get_client()
         ok = client.post_comment(note_id, content, xsec_token)

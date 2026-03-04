@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path.home() / ".xhs-cli"
 COOKIE_FILE = CONFIG_DIR / "cookies.json"
+# Cache file for xsec_token: maps note_id -> xsec_token so users don't
+# need to copy-paste tokens manually after search.
+TOKEN_CACHE_FILE = CONFIG_DIR / "token_cache.json"
 
 # a1 is required for signing. web_session is needed for authenticated endpoints
 # but not for anonymous operations like search.
@@ -206,3 +209,50 @@ def _cookie_str_to_dict(cookie_str: str) -> dict:
             k, v = item.split("=", 1)
             result[k.strip()] = v.strip()
     return result
+
+
+# ===== xsec_token cache =====
+# After a search, we cache the note_id -> xsec_token mapping so that
+# subsequent commands (note, like, favorite, comment) can automatically
+# resolve the token without requiring the user to pass --xsec-token.
+
+
+def save_token_cache(token_map: dict[str, str]):
+    """Save note_id -> xsec_token mapping from search results.
+
+    Merges with any existing cache so tokens from previous searches
+    are preserved until overwritten by a new search containing the
+    same note_id.
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Merge with existing cache
+    existing = {}
+    if TOKEN_CACHE_FILE.exists():
+        try:
+            existing = json.loads(TOKEN_CACHE_FILE.read_text())
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    existing.update(token_map)
+    TOKEN_CACHE_FILE.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
+    logger.info("Cached %d xsec_token(s) to %s", len(token_map), TOKEN_CACHE_FILE)
+
+
+def load_xsec_token(note_id: str) -> str:
+    """Look up cached xsec_token for a given note_id.
+
+    Returns the token string if found, or empty string if not cached.
+    """
+    if not TOKEN_CACHE_FILE.exists():
+        return ""
+
+    try:
+        cache = json.loads(TOKEN_CACHE_FILE.read_text())
+        token = cache.get(note_id, "")
+        if token:
+            logger.info("Auto-resolved xsec_token for %s from cache", note_id)
+        return token
+    except (json.JSONDecodeError, IOError):
+        return ""
+

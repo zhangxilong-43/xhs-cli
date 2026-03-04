@@ -5,13 +5,17 @@ A command-line tool for [Xiaohongshu (小红书)](https://www.xiaohongshu.com) �
 ## ✨ Features
 
 - 🔍 **Search** — search notes by keyword with rich table output
-- 📖 **Note Detail** — view note content, stats, and comments
+- 📖 **Read** — view note content, stats, and comments
 - 👤 **User Profile** — view user info and stats
+- 📝 **User Posts** — list all notes published by a user
+- 🏠 **Feed** — get recommended content from explore page
+- 🏷️ **Topics** — search for topics and hashtags
 - ❤️ **Like / Unlike** — like or unlike notes
 - ⭐ **Favorite / Unfavorite** — collect or uncollect notes
 - 💬 **Comment** — post comments on notes
 - 🔐 **Auth** — auto-extract cookies from Chrome, or login via QR code
 - 📊 **JSON output** — `--json` flag for all data commands
+- 🔗 **Auto token** — `xsec_token` from search/feed results is cached and auto-resolved
 
 ## 🏗️ Architecture
 
@@ -25,7 +29,7 @@ Uses [camoufox](https://github.com/nicochichat/camoufox) (anti-fingerprint Firef
 
 ## 📦 Installation
 
-Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.8+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # Clone and install
@@ -62,40 +66,59 @@ uv run xhs search "咖啡"
 uv run xhs search "咖啡" --json
 ```
 
-### Note Detail
+### Read Note
 
 ```bash
-# View note (xsec_token from search results)
-uv run xhs note <note_id> --xsec-token <token>
+# View note (xsec_token auto-resolved from search cache)
+uv run xhs read <note_id>
 
 # Include comments
-uv run xhs note <note_id> --xsec-token <token> --comments
+uv run xhs read <note_id> --comments
+
+# Provide xsec_token manually if needed
+uv run xhs read <note_id> --xsec-token <token>
 
 # JSON output
-uv run xhs note <note_id> --xsec-token <token> --json
+uv run xhs read <note_id> --json
 ```
 
-### User Profile
+### User Profile & Posts
 
 ```bash
 # View user profile (use internal user_id, not Red ID)
 uv run xhs user <user_id>
 uv run xhs user <user_id> --json
+
+# List user's published notes
+uv run xhs user-posts <user_id>
+uv run xhs user-posts <user_id> --json
+```
+
+### Feed & Topics
+
+```bash
+# Get recommended explore feed
+uv run xhs feed
+uv run xhs feed --json
+
+# Search topics/hashtags
+uv run xhs topics "咖啡"
+uv run xhs topics "咖啡" --json
 ```
 
 ### Interactions
 
 ```bash
-# Like / Unlike
-uv run xhs like <note_id> --xsec-token <token>
-uv run xhs like <note_id> --xsec-token <token> --undo
+# Like / Unlike (xsec_token auto-resolved)
+uv run xhs like <note_id>
+uv run xhs like <note_id> --undo
 
 # Favorite / Unfavorite
-uv run xhs favorite <note_id> --xsec-token <token>
-uv run xhs favorite <note_id> --xsec-token <token> --undo
+uv run xhs favorite <note_id>
+uv run xhs favorite <note_id> --undo
 
 # Comment
-uv run xhs comment <note_id> "好棒！" --xsec-token <token>
+uv run xhs comment <note_id> "好棒！"
 ```
 
 ### Options
@@ -121,7 +144,7 @@ xhs-cli/
     ├── __init__.py         # Package version
     ├── cli.py              # Click CLI commands
     ├── client.py           # Camoufox browser client
-    ├── auth.py             # Cookie extraction + QR login
+    ├── auth.py             # Cookie extraction + QR login + token cache
     └── exceptions.py       # Custom exceptions
 ```
 
@@ -133,15 +156,18 @@ xhs-cli/
 
 3. **Data Extraction**: Structured data is pulled from `window.__INITIAL_STATE__`, which is the same data React/Vue uses to render the page.
 
-4. **Interactions**: Like, favorite, and comment work by finding and clicking the actual DOM buttons — exactly as a real user would.
+4. **Token Caching**: After search/feed/user-posts, `xsec_token` is automatically cached to `~/.xhs-cli/token_cache.json`. Subsequent commands auto-resolve tokens — no manual copy-paste needed.
+
+5. **Interactions**: Like, favorite, and comment work by finding and clicking the actual DOM buttons — exactly as a real user would.
 
 ## ⚠️ Notes
 
 - Cookies are stored in `~/.xhs-cli/cookies.json` with `0600` permissions.
+- Token cache is stored in `~/.xhs-cli/token_cache.json`.
 - The tool uses headless Firefox via camoufox — no browser window is shown.
 - First run may be slower as camoufox downloads its browser binary.
 - User profile lookup requires the internal user_id (hex format), not the Red ID (numeric).
 
 ## 📄 License
 
-MIT
+Apache License 2.0
