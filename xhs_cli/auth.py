@@ -193,6 +193,18 @@ def save_cookies(cookie_str: str):
     logger.info("Cookies saved to %s", COOKIE_FILE)
 
 
+def clear_cookies():
+    """Remove saved cookies and token cache (for logout)."""
+    removed = []
+    for f in (COOKIE_FILE, TOKEN_CACHE_FILE):
+        if f.exists():
+            f.unlink()
+            removed.append(f.name)
+    if removed:
+        logger.info("Removed: %s", ", ".join(removed))
+    return removed
+
+
 def _has_required_cookies(cookies: dict) -> bool:
     return REQUIRED_COOKIES.issubset(cookies.keys())
 

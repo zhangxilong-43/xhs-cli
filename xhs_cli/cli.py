@@ -22,7 +22,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .auth import get_cookie_string, load_xsec_token, qrcode_login, save_token_cache
+from .auth import clear_cookies, get_cookie_string, load_xsec_token, qrcode_login, save_token_cache
 from .exceptions import XhsError
 from . import __version__
 
@@ -102,6 +102,16 @@ def login(qrcode: bool, cookie_str: str | None):
 
 
 @cli.command()
+def logout():
+    """Logout and clear saved cookies."""
+    removed = clear_cookies()
+    if removed:
+        console.print(f"[green]✅ Logged out. Removed: {', '.join(removed)}[/green]")
+    else:
+        console.print("[yellow]No saved cookies to clear.[/yellow]")
+
+
+@cli.command()
 def status():
     """Check login status."""
     try:
@@ -151,6 +161,12 @@ def status():
         table = Table(title="Login Status")
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="green")
+        # If nickname is still Unknown, the session is likely invalid
+        if nickname == "Unknown":
+            console.print("[red]❌ Session expired or invalid. Run `xhs login` to re-authenticate.[/red]")
+            client.close()
+            sys.exit(1)
+
         table.add_row("Status", "✅ Logged in")
         table.add_row("Nickname", nickname)
         if red_id:
