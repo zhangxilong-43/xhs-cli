@@ -388,6 +388,114 @@ class XhsClient:
                     return result[key]
         return []
 
+    # ===== Favorites =====
+
+    def get_favorites(self, max_count: int = 50) -> list[dict]:
+        """Get current user's favorite (collected) notes.
+
+        Navigates to the user's profile collect tab and extracts notes.
+        Scrolls down to load more notes up to max_count.
+
+        Args:
+            max_count: Maximum number of favorites to return.
+        """
+        # First get user_id from self info
+        info = self.get_self_info()
+        user_id = ""
+        if isinstance(info, dict):
+            basic = info.get("basicInfo", info.get("basic_info", {}))
+            user_page = info.get("userPageData", {})
+            if user_page:
+                basic = user_page.get("basicInfo", user_page.get("basic_info", basic))
+            if not basic or not isinstance(basic, dict):
+                basic = info
+            user_id = (basic.get("userId", "") or basic.get("user_id", "") or
+                       basic.get("id", ""))
+
+        if not user_id:
+            raise RuntimeError("Cannot determine user_id. Make sure you are logged in.")
+
+        # Navigate to user's collect tab
+        url = f"https://www.xiaohongshu.com/user/profile/{user_id}?tab=collect"
+        logger.info("Loading favorites: %s", url)
+        self._page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        self._human_wait(2, 3)
+        self._wait_for_initial_state()
+
+        all_notes = []
+        seen_ids = set()
+
+        # Extract notes and scroll to load more
+        for scroll_attempt in range(max(1, max_count // 10)):
+            notes = self._page.evaluate("""() => {
+                function unwrap(obj, depth) {
+                    if (depth > 6 || obj === null || obj === undefined) return obj;
+                    if (typeof obj !== 'object') return obj;
+                    if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
+                    if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
+                    if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
+                    const result = {};
+                    for (const key of Object.keys(obj)) {
+                        if (key === 'dep' || key.startsWith('__')) continue;
+                        try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
+                    }
+                    return result;
+                }
+
+                if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
+                    const u = window.__INITIAL_STATE__.user;
+                    // Collect tab data is in user.collect or user.collectNotes
+                    const sources = [u.collect, u.collectNotes, u.notes];
+                    for (const src of sources) {
+                        if (src) {
+                            const data = unwrap(src, 0);
+                            if (Array.isArray(data)) return data;
+                            if (data && typeof data === 'object') {
+                                for (const key of ['value', '_value', 'data', 'list']) {
+                                    if (Array.isArray(data[key])) return data[key];
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: try to scrape visible note cards from DOM
+                const cards = document.querySelectorAll('section.note-item, [class*="note-item"], a[href*="/explore/"]');
+                if (cards.length > 0) {
+                    return Array.from(cards).map(card => {
+                        const link = card.querySelector('a') || card;
+                        const href = link.getAttribute('href') || '';
+                        const title = card.querySelector('[class*="title"]');
+                        const author = card.querySelector('[class*="author"]');
+                        const likes = card.querySelector('[class*="like"]');
+                        return {
+                            noteId: (href.match(/\\/explore\\/([a-f0-9]+)/) || [])[1] || '',
+                            displayTitle: title ? title.textContent.trim() : '',
+                            user: { nickname: author ? author.textContent.trim() : '' },
+                            interactInfo: { likedCount: likes ? likes.textContent.trim() : '' },
+                            xsecToken: (href.match(/xsec_token=([^&]+)/) || [])[1] || '',
+                        };
+                    });
+                }
+                return [];
+            }""")
+
+            if isinstance(notes, list):
+                for note in notes:
+                    nid = note.get("noteId", note.get("note_id", note.get("id", "")))
+                    if nid and nid not in seen_ids:
+                        seen_ids.add(nid)
+                        all_notes.append(note)
+
+            if len(all_notes) >= max_count:
+                break
+
+            # Scroll down to load more notes
+            self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self._human_wait(1.5, 2.5)
+
+        return all_notes[:max_count]
+
     # ===== Self Info =====
 
     def get_self_info(self) -> dict:

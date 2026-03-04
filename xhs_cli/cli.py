@@ -632,6 +632,66 @@ def comment(note_id: str, content: str, xsec_token: str):
         sys.exit(1)
 
 
+@cli.command()
+@click.option("--max", "max_count", default=50, help="Maximum number of favorites to fetch")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def favorites(max_count: int, as_json: bool):
+    """List your collected (favorited) notes."""
+    try:
+        client = _get_client()
+        notes = client.get_favorites(max_count=max_count)
+
+        if as_json:
+            click.echo(json.dumps(notes, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        if not notes:
+            console.print("[yellow]No favorites found.[/yellow]")
+            client.close()
+            return
+
+        # Cache xsec_tokens for later use
+        token_map = {}
+        for note in notes:
+            nid = note.get("noteId", note.get("note_id", note.get("id", "")))
+            token = note.get("xsecToken", note.get("xsec_token", ""))
+            if nid and token:
+                token_map[nid] = token
+        if token_map:
+            save_token_cache(token_map)
+
+        table = Table(title=f"⭐ Favorites ({len(notes)} items)")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Title", style="bold", max_width=40)
+        table.add_column("Author", max_width=16)
+        table.add_column("Likes", justify="right", width=6)
+        table.add_column("Note ID", style="dim")
+
+        for i, note in enumerate(notes, 1):
+            nid = note.get("noteId", note.get("note_id", note.get("id", "")))
+            title = note.get("displayTitle", note.get("display_title", note.get("title", "")))
+            # Extract author name
+            user = note.get("user", note.get("noteUser", {}))
+            author = user.get("nickname", user.get("nick_name", "")) if isinstance(user, dict) else ""
+            # Extract likes
+            interact = note.get("interactInfo", note.get("interact_info", {}))
+            likes = interact.get("likedCount", interact.get("liked_count", "")) if isinstance(interact, dict) else ""
+            # Note type indicator
+            note_type = note.get("type", note.get("noteType", ""))
+            type_icon = "📹" if note_type in ("video", "1") else "📷"
+
+            table.add_row(str(i), f"{type_icon} {title}", author, str(likes), nid)
+
+        console.print(table)
+        console.print("\nUse `xhs read <Note ID>` to view details")
+        client.close()
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get favorites: {e}[/red]")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
 
