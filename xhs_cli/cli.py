@@ -449,6 +449,84 @@ def user_posts(user_id: str, as_json: bool):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("user_id")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def followers(user_id: str, as_json: bool):
+    """List a user's followers."""
+    try:
+        client = _get_client()
+        users = client.get_followers(user_id)
+
+        if as_json:
+            click.echo(json.dumps(users, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        if not users:
+            console.print("[yellow]No followers found.[/yellow]")
+            client.close()
+            return
+
+        table = Table(title=f"Followers ({len(users)})")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Nickname", style="bold", max_width=20)
+        table.add_column("Red ID", style="dim")
+        table.add_column("User ID", style="dim")
+
+        for i, u in enumerate(users, 1):
+            nickname = u.get("nickname", u.get("nick_name", ""))
+            red_id = u.get("redId", u.get("red_id", ""))
+            uid = u.get("userId", u.get("user_id", u.get("id", "")))
+            table.add_row(str(i), nickname, red_id, uid)
+
+        console.print(table)
+        client.close()
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get followers: {e}[/red]")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("user_id")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def following(user_id: str, as_json: bool):
+    """List a user's following."""
+    try:
+        client = _get_client()
+        users = client.get_following(user_id)
+
+        if as_json:
+            click.echo(json.dumps(users, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        if not users:
+            console.print("[yellow]No following found.[/yellow]")
+            client.close()
+            return
+
+        table = Table(title=f"Following ({len(users)})")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Nickname", style="bold", max_width=20)
+        table.add_column("Red ID", style="dim")
+        table.add_column("User ID", style="dim")
+
+        for i, u in enumerate(users, 1):
+            nickname = u.get("nickname", u.get("nick_name", ""))
+            red_id = u.get("redId", u.get("red_id", ""))
+            uid = u.get("userId", u.get("user_id", u.get("id", "")))
+            table.add_row(str(i), nickname, red_id, uid)
+
+        console.print(table)
+        client.close()
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get following: {e}[/red]")
+        sys.exit(1)
+
+
 # ===== Feed =====
 
 @cli.command()
@@ -590,6 +668,23 @@ def like(note_id: str, xsec_token: str, undo: bool):
 @cli.command()
 @click.argument("note_id")
 @click.option("--xsec-token", default="", help="xsec_token from search results")
+def unlike(note_id: str, xsec_token: str):
+    """Unlike a note."""
+    if not xsec_token:
+        xsec_token = load_xsec_token(note_id)
+    try:
+        client = _get_client()
+        client.unlike_note(note_id, xsec_token)
+        console.print(f"[green]✅ Unliked {note_id}[/green]")
+        client.close()
+    except Exception as e:
+        console.print(f"[red]❌ Unlike failed: {e}[/red]")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("note_id")
+@click.option("--xsec-token", default="", help="xsec_token from search results")
 @click.option("--undo", is_flag=True, help="Unfavorite instead of favorite")
 def favorite(note_id: str, xsec_token: str, undo: bool):
     """Favorite or unfavorite a note."""
@@ -607,6 +702,23 @@ def favorite(note_id: str, xsec_token: str, undo: bool):
         client.close()
     except Exception as e:
         console.print(f"[red]❌ Favorite failed: {e}[/red]")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("note_id")
+@click.option("--xsec-token", default="", help="xsec_token from search results")
+def unfavorite(note_id: str, xsec_token: str):
+    """Unfavorite (uncollect) a note."""
+    if not xsec_token:
+        xsec_token = load_xsec_token(note_id)
+    try:
+        client = _get_client()
+        client.unfavorite_note(note_id, xsec_token)
+        console.print(f"[green]✅ Unfavorited {note_id}[/green]")
+        client.close()
+    except Exception as e:
+        console.print(f"[red]❌ Unfavorite failed: {e}[/red]")
         sys.exit(1)
 
 

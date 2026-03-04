@@ -19,6 +19,18 @@
 - 📊 **JSON 输出** — 所有数据命令支持 `--json`
 - 🔗 **Token 自动缓存** — 搜索/Feed 结果的 `xsec_token` 自动缓存，后续命令免手动传
 
+## 📋 命令一览
+
+| 分类 | 命令 | 说明 |
+|------|------|------|
+| 🔐 **认证** | `login`, `logout`, `status`, `whoami` | 登录、退出、状态检查、查看个人资料 |
+| 🔍 **浏览** | `search`, `read`, `feed`, `topics` | 搜索笔记、阅读详情、推荐 Feed、搜索话题 |
+| 👤 **用户** | `user`, `user-posts`, `followers`, `following` | 查看资料、列出笔记/粉丝/关注 |
+| ❤️ **互动** | `like`, `unlike`, `comment` | 点赞、取消点赞、评论 |
+| ⭐ **收藏** | `favorite`, `unfavorite`, `favorites` | 收藏、取消收藏、查看收藏列表 |
+
+> 所有数据命令支持 `--json` 输出原始 JSON。`xsec_token` 自动缓存，无需手动传递。
+
 ## 🏗️ 架构
 
 ```

@@ -208,6 +208,69 @@ class XhsClient:
             raise RuntimeError(f"Failed to extract user profile for {user_id}")
         return result
 
+    # ===== Followers / Following =====
+
+    def _get_follow_list(self, user_id: str, tab: str) -> list[dict]:
+        """Get a user's followers or following list.
+
+        Args:
+            user_id: The user ID to fetch for.
+            tab: 'fans' for followers, 'follows' for following.
+        """
+        url = f"https://www.xiaohongshu.com/user/profile/{user_id}?tab={tab}"
+        logger.info("Loading %s list for user %s", tab, user_id)
+        self._page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        self._human_wait(2, 3)
+        self._wait_for_initial_state()
+
+        result = self._page.evaluate("""(tab) => {
+            function unwrap(obj, depth) {
+                if (depth > 6 || obj === null || obj === undefined) return obj;
+                if (typeof obj !== 'object') return obj;
+                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
+                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
+                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
+                const result = {};
+                for (const key of Object.keys(obj)) {
+                    if (key === 'dep' || key.startsWith('__')) continue;
+                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
+                }
+                return result;
+            }
+
+            if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
+                const u = window.__INITIAL_STATE__.user;
+                // Try tab-specific keys, then generic 'fansUsers' / 'followUsers'
+                const sources = [
+                    u[tab],
+                    tab === 'fans' ? u.fansUsers : u.followUsers,
+                    tab === 'fans' ? u.fans : u.follows,
+                ];
+                for (const src of sources) {
+                    if (src) {
+                        const data = unwrap(src, 0);
+                        if (Array.isArray(data)) return data;
+                        if (data && typeof data === 'object') {
+                            for (const key of ['value', '_value', 'data', 'list', 'users']) {
+                                if (Array.isArray(data[key])) return data[key];
+                            }
+                        }
+                    }
+                }
+            }
+            return [];
+        }""", tab)
+
+        return result if isinstance(result, list) else []
+
+    def get_followers(self, user_id: str) -> list[dict]:
+        """Get a user's followers list."""
+        return self._get_follow_list(user_id, "fans")
+
+    def get_following(self, user_id: str) -> list[dict]:
+        """Get a user's following list."""
+        return self._get_follow_list(user_id, "follows")
+
     # ===== User Posts =====
 
     def get_user_posts(self, user_id: str) -> list[dict]:
