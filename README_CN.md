@@ -60,8 +60,12 @@ uv run xhs login
 # 手动提供 cookie 字符串
 uv run xhs login --cookie "a1=xxx; web_session=yyy"
 
-# 查看登录状态
+# 快速检查登录状态（不启动浏览器）
 uv run xhs status
+
+# 查看完整个人资料
+uv run xhs whoami
+uv run xhs whoami --json
 
 # 退出登录
 uv run xhs logout

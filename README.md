@@ -54,8 +54,14 @@ uv run xhs login
 # Or provide cookie string manually
 uv run xhs login --cookie "a1=xxx; web_session=yyy"
 
-# Check login status
+# Quick login check (no browser needed)
 uv run xhs status
+
+# Show full profile info
+uv run xhs whoami
+
+# Logout
+uv run xhs logout
 ```
 
 ### Search

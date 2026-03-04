@@ -147,30 +147,53 @@ def logout():
 
 @cli.command()
 def status():
-    """Check login status."""
+    """Check login status (lightweight, no browser needed)."""
+    from .auth import COOKIE_FILE
+
+    cookie = get_cookie_string()
+    if not cookie:
+        console.print("[red]❌ Not logged in. Run `xhs login` to authenticate.[/red]")
+        sys.exit(1)
+
+    # Check if cookie file exists (saved session)
+    source = "saved cookies" if COOKIE_FILE.exists() else "browser cookies"
+    console.print(f"[green]✅ Logged in[/green] [dim](from {source})[/dim]")
+    console.print("[dim]Run `xhs whoami` to see your profile details.[/dim]")
+
+
+@cli.command()
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
+def whoami(as_json: bool):
+    """Show current user's profile info."""
     try:
         client = _get_client()
         info = client.get_self_info()
 
-        # Data may come from different sources with different structures.
-        # Try multiple paths to find user details.
+        if as_json:
+            click.echo(json.dumps(info, indent=2, ensure_ascii=False))
+            client.close()
+            return
+
+        # Extract user details from various data paths
         basic = info.get("basicInfo", info.get("basic_info", {}))
-        # If get_self_info returned full profile from get_user_info,
-        # userPageData contains the richest data.
         user_page = info.get("userPageData", {})
         if user_page:
             basic = user_page.get("basicInfo", user_page.get("basic_info", basic))
 
-        # Also check userInfo path (from get_user_info)
         user_info = info.get("userInfo", {})
         if user_info and not basic:
             basic = user_info
 
-        # If basic is still empty, fall back to top-level info dict
         if not basic or not isinstance(basic, dict):
             basic = info
 
         nickname = basic.get("nickname", basic.get("nick_name", "Unknown"))
+
+        if nickname == "Unknown":
+            console.print("[red]❌ Session expired or invalid. Run `xhs login` to re-authenticate.[/red]")
+            client.close()
+            sys.exit(1)
+
         red_id = basic.get("redId", basic.get("red_id", ""))
         ip_location = basic.get("ipLocation", basic.get("ip_location", ""))
         desc = basic.get("desc", basic.get("description", ""))
@@ -181,8 +204,6 @@ def status():
         interactions = (user_page.get("interactions", []) or
                         info.get("interactions", []))
 
-        # Build stats map from interactions array
-        # Each item has {type, name, count} or similar
         stats = {}
         if isinstance(interactions, list):
             for item in interactions:
@@ -192,23 +213,15 @@ def status():
                     if name and count is not None:
                         stats[name] = str(count)
 
-        table = Table(title="Login Status")
+        table = Table(title=f"👤 {nickname}")
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="green")
-        # If nickname is still Unknown, the session is likely invalid
-        if nickname == "Unknown":
-            console.print("[red]❌ Session expired or invalid. Run `xhs login` to re-authenticate.[/red]")
-            client.close()
-            sys.exit(1)
-
-        table.add_row("Status", "✅ Logged in")
-        table.add_row("Nickname", nickname)
         if red_id:
             table.add_row("Red ID", red_id)
         if user_id:
             table.add_row("User ID", str(user_id))
         if desc:
-            table.add_row("Bio", desc[:50])
+            table.add_row("Bio", desc[:80])
         if ip_location:
             table.add_row("IP Location", ip_location)
         if gender:
@@ -231,7 +244,7 @@ def status():
     except SystemExit:
         raise
     except Exception as e:
-        console.print(f"[red]❌ Not logged in or session expired: {e}[/red]")
+        console.print(f"[red]❌ Failed to get profile: {e}[/red]")
         sys.exit(1)
 
 
