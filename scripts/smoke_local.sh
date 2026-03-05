@@ -10,6 +10,13 @@ if ! uv run python -m xhs_cli.cli status >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "[smoke] validating session usability via whoami..."
+if ! uv run python -m xhs_cli.cli whoami >/dev/null 2>&1; then
+  echo "[smoke] saved cookies exist but session is expired/invalid."
+  echo "[smoke] run 'uv run python -m xhs_cli.cli login' to refresh auth."
+  exit 1
+fi
+
 MARK_EXPR="integration and not live_mutation"
 if [[ "${XHS_SMOKE_MUTATION:-0}" == "1" ]]; then
   MARK_EXPR="integration"
