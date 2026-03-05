@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xhs-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "A CLI for Xiaohongshu (小红书) — search, read notes, view profiles"
 readme = "README.md"
 license = "Apache-2.0"

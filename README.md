@@ -7,6 +7,11 @@
 
 小红书命令行工具 — 在终端中搜索笔记、查看主页、点赞、收藏、评论。
 
+## 推荐项目
+
+- [twitter-cli](https://github.com/jackwener/twitter-cli) - 在终端中操作 X/Twitter 的 CLI 工具
+- [bilibili-cli](https://github.com/jackwener/bilibili-cli) - 哔哩哔哩 CLI 工具
+
 ## 功能
 
 - **搜索** — 按关键词搜索笔记，Rich 表格展示
