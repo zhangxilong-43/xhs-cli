@@ -6,11 +6,11 @@ exactly like a real user browsing. This avoids API-level risk control (300011).
 
 from __future__ import annotations
 
-import json
 import logging
 import random
 import time
-from typing import Any
+
+from .exceptions import DataFetchError, LoginError
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ class XhsClient:
         self._wait_for_initial_state()
 
         # Extract note detail
-        for attempt in range(3):
+        for _attempt in range(3):
             result = self._page.evaluate("""() => {
                 if (window.__INITIAL_STATE__ &&
                     window.__INITIAL_STATE__.note &&
@@ -175,7 +175,7 @@ class XhsClient:
 
             time.sleep(0.5)
 
-        raise RuntimeError(f"Failed to extract note detail for {note_id}")
+        raise DataFetchError(f"Failed to extract note detail for {note_id}")
 
     # ===== User Profile =====
 
@@ -191,38 +191,11 @@ class XhsClient:
 
         # Vue wraps values in reactive refs like {_value, dep, ...}
         # We need to unwrap _value recursively
-        result = self._page.evaluate("""() => {
-            function unwrap(obj, depth) {
-                if (depth > 6 || obj === null || obj === undefined) return obj;
-                if (typeof obj !== 'object') return obj;
-
-                // Unwrap Vue ref: if has _value, use that
-                if ('_value' in obj && 'dep' in obj) {
-                    return unwrap(obj._value, depth + 1);
-                }
-                // Also handle .value pattern
-                if ('value' in obj && 'dep' in obj) {
-                    return unwrap(obj.value, depth + 1);
-                }
-
-                if (Array.isArray(obj)) {
-                    return obj.map(item => unwrap(item, depth + 1));
-                }
-
-                const result = {};
-                const seen = new Set();
-                for (const key of Object.keys(obj)) {
-                    if (key === 'dep' || key === '__v_raw' || key === '__v_skip'
-                        || key.startsWith('__')) continue;
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    try {
-                        result[key] = unwrap(obj[key], depth + 1);
-                    } catch(e) {}
-                }
-                return result;
-            }
-
+        result = self._page.evaluate(
+            """() => {
+"""
+            + UNWRAP_JS
+            + """
             if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
                 const u = window.__INITIAL_STATE__.user;
                 const data = {};
@@ -233,10 +206,11 @@ class XhsClient:
                 return data;
             }
             return null;
-        }""")
+        }"""
+        )
 
         if not result:
-            raise RuntimeError(f"Failed to extract user profile for {user_id}")
+            raise DataFetchError(f"Failed to extract user profile for {user_id}")
         return result
 
     # ===== Followers / Following =====
@@ -254,21 +228,11 @@ class XhsClient:
         self._human_wait(2, 3)
         self._wait_for_initial_state()
 
-        result = self._page.evaluate("""(tab) => {
-            function unwrap(obj, depth) {
-                if (depth > 6 || obj === null || obj === undefined) return obj;
-                if (typeof obj !== 'object') return obj;
-                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
-                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
-                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
-                const result = {};
-                for (const key of Object.keys(obj)) {
-                    if (key === 'dep' || key.startsWith('__')) continue;
-                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
-                }
-                return result;
-            }
-
+        result = self._page.evaluate(
+            """(tab) => {
+"""
+            + UNWRAP_JS
+            + """
             if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
                 const u = window.__INITIAL_STATE__.user;
                 // Try tab-specific keys, then generic 'fansUsers' / 'followUsers'
@@ -290,7 +254,9 @@ class XhsClient:
                 }
             }
             return [];
-        }""", tab)
+        }""",
+            tab,
+        )
 
         return result if isinstance(result, list) else []
 
@@ -320,21 +286,11 @@ class XhsClient:
 
         # Extract notes list from user profile state.
         # Vue wraps arrays in reactive refs, so we unwrap _value recursively.
-        result = self._page.evaluate("""() => {
-            function unwrap(obj, depth) {
-                if (depth > 6 || obj === null || obj === undefined) return obj;
-                if (typeof obj !== 'object') return obj;
-                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
-                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
-                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
-                const result = {};
-                for (const key of Object.keys(obj)) {
-                    if (key === 'dep' || key.startsWith('__')) continue;
-                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
-                }
-                return result;
-            }
-
+        result = self._page.evaluate(
+            """() => {
+"""
+            + UNWRAP_JS
+            + """
             if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
                 const u = window.__INITIAL_STATE__.user;
                 // notes contains the list of user's published notes
@@ -352,7 +308,8 @@ class XhsClient:
                 }
             }
             return null;
-        }""")
+        }"""
+        )
 
         return result if isinstance(result, list) else []
 
@@ -375,21 +332,11 @@ class XhsClient:
         self._wait_for_initial_state()
 
         # Extract feed from explore page state
-        result = self._page.evaluate("""() => {
-            function unwrap(obj, depth) {
-                if (depth > 6 || obj === null || obj === undefined) return obj;
-                if (typeof obj !== 'object') return obj;
-                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
-                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
-                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
-                const result = {};
-                for (const key of Object.keys(obj)) {
-                    if (key === 'dep' || key.startsWith('__')) continue;
-                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
-                }
-                return result;
-            }
-
+        result = self._page.evaluate(
+            """() => {
+"""
+            + UNWRAP_JS
+            + """
             const state = window.__INITIAL_STATE__;
             if (!state) return null;
 
@@ -407,7 +354,8 @@ class XhsClient:
                 return unwrap(state.homefeed.feeds, 0);
             }
             return null;
-        }""")
+        }"""
+        )
 
         if not result:
             logger.warning("No feed data found in __INITIAL_STATE__")
@@ -445,21 +393,11 @@ class XhsClient:
         self._wait_for_initial_state()
 
         # Extract topic search results
-        result = self._page.evaluate("""() => {
-            function unwrap(obj, depth) {
-                if (depth > 6 || obj === null || obj === undefined) return obj;
-                if (typeof obj !== 'object') return obj;
-                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
-                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
-                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
-                const result = {};
-                for (const key of Object.keys(obj)) {
-                    if (key === 'dep' || key.startsWith('__')) continue;
-                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
-                }
-                return result;
-            }
-
+        result = self._page.evaluate(
+            """() => {
+"""
+            + UNWRAP_JS
+            + """
             const state = window.__INITIAL_STATE__;
             if (!state || !state.search) return null;
 
@@ -468,7 +406,8 @@ class XhsClient:
             if (search.topics) return unwrap(search.topics, 0);
             if (search.feeds) return unwrap(search.feeds, 0);
             return null;
-        }""")
+        }"""
+        )
 
         if not result:
             logger.warning("No topic results found")
@@ -520,7 +459,7 @@ class XhsClient:
                            info.get("id", ""))
 
         if not user_id:
-            raise RuntimeError("Cannot determine user_id. Make sure you are logged in.")
+            raise LoginError("Cannot determine user_id. Make sure you are logged in.")
 
         # Navigate to user's collect tab
         url = f"https://www.xiaohongshu.com/user/profile/{user_id}?tab=collect"
@@ -533,22 +472,13 @@ class XhsClient:
         seen_ids = set()
 
         # Extract notes and scroll to load more
-        for scroll_attempt in range(max(1, max_count // 10)):
-            notes = self._page.evaluate("""() => {
-                function unwrap(obj, depth) {
-                    if (depth > 6 || obj === null || obj === undefined) return obj;
-                    if (typeof obj !== 'object') return obj;
-                    if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
-                    if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
-                    if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
-                    const result = {};
-                    for (const key of Object.keys(obj)) {
-                        if (key === 'dep' || key.startsWith('__')) continue;
-                        try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
-                    }
-                    return result;
-                }
-
+        page_limit = max(1, (max_count + 9) // 10)
+        for _scroll_attempt in range(page_limit):
+            notes = self._page.evaluate(
+                """() => {
+"""
+                + UNWRAP_JS
+                + """
                 if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user) {
                     const u = window.__INITIAL_STATE__.user;
                     // Collect tab data is in user.collect or user.collectNotes
@@ -567,7 +497,9 @@ class XhsClient:
                 }
 
                 // Fallback: try to scrape visible note cards from DOM
-                const cards = document.querySelectorAll('section.note-item, [class*="note-item"], a[href*="/explore/"]');
+                const cards = document.querySelectorAll(
+                    'section.note-item, [class*="note-item"], a[href*="/explore/"]'
+                );
                 if (cards.length > 0) {
                     return Array.from(cards).map(card => {
                         const link = card.querySelector('a') || card;
@@ -585,7 +517,8 @@ class XhsClient:
                     });
                 }
                 return [];
-            }""")
+            }"""
+            )
 
             if isinstance(notes, list):
                 for note in notes:
@@ -626,21 +559,11 @@ class XhsClient:
 
         # Try to extract current user info from homepage state.
         # The data might be in different paths depending on page version.
-        result = self._page.evaluate("""() => {
-            function unwrap(obj, depth) {
-                if (depth > 6 || obj === null || obj === undefined) return obj;
-                if (typeof obj !== 'object') return obj;
-                if ('_value' in obj && 'dep' in obj) return unwrap(obj._value, depth + 1);
-                if ('value' in obj && 'dep' in obj) return unwrap(obj.value, depth + 1);
-                if (Array.isArray(obj)) return obj.map(item => unwrap(item, depth + 1));
-                const result = {};
-                for (const key of Object.keys(obj)) {
-                    if (key === 'dep' || key.startsWith('__')) continue;
-                    try { result[key] = unwrap(obj[key], depth + 1); } catch(e) {}
-                }
-                return result;
-            }
-
+        result = self._page.evaluate(
+            """() => {
+"""
+            + UNWRAP_JS
+            + """
             const state = window.__INITIAL_STATE__;
             if (!state) return null;
 
@@ -668,7 +591,8 @@ class XhsClient:
                 return unwrap(state.user, 0);
             }
             return null;
-        }""")
+        }"""
+        )
 
         if not result:
             return {}
@@ -1048,7 +972,14 @@ class XhsClient:
             el.click()
             self._human_wait(2, 3)
 
-        return True
+        state = self._get_interact_state(note_id)
+        final_state = state.get(STATE_KEYS[action], False)
+        if final_state == target_state:
+            logger.info("Note %s %s success after retry", note_id, action)
+            return True
+
+        logger.error("Failed to %s note %s after retry", action, note_id)
+        return False
 
     # ===== Internal helpers =====
 
@@ -1070,4 +1001,3 @@ class XhsClient:
     def _human_wait(self, min_sec: float = 1.0, max_sec: float = 3.0):
         """Wait a random human-like interval."""
         time.sleep(random.uniform(min_sec, max_sec))
-

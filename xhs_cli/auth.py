@@ -12,6 +12,8 @@ import json
 import logging
 from pathlib import Path
 
+from .exceptions import LoginError
+
 logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path.home() / ".xhs-cli"
@@ -137,9 +139,9 @@ def qrcode_login() -> str:
     as a screenshot, opens it with the system image viewer, then polls for
     login completion by checking cookies.
     """
-    import sys
     import tempfile
     import time
+
     from camoufox.sync_api import Camoufox
 
     print("🔑 Starting QR code login...")
@@ -150,7 +152,13 @@ def qrcode_login() -> str:
         time.sleep(3)
 
         # Dismiss any overlay/mask that might block clicks (cookie consent, etc.)
-        for mask_sel in ['.reds-mask', '[aria-label="弹窗遮罩"]', '.close-button', '.reds-popup-close']:
+        mask_selectors = [
+            ".reds-mask",
+            '[aria-label="弹窗遮罩"]',
+            ".close-button",
+            ".reds-popup-close",
+        ]
+        for mask_sel in mask_selectors:
             mask = page.query_selector(mask_sel)
             if mask:
                 try:
@@ -175,9 +183,15 @@ def qrcode_login() -> str:
                 pass
 
         # If no QR code visible yet, try navigating directly to the login URL
-        qr_visible = page.query_selector('.qrcode-img') or page.query_selector('img[class*="qrcode"]')
+        qr_visible = page.query_selector(".qrcode-img") or page.query_selector(
+            'img[class*="qrcode"]'
+        )
         if not qr_visible:
-            page.goto("https://www.xiaohongshu.com/login", wait_until="domcontentloaded", timeout=20000)
+            page.goto(
+                "https://www.xiaohongshu.com/login",
+                wait_until="domcontentloaded",
+                timeout=20000,
+            )
             time.sleep(3)
 
         # Try to screenshot the QR code element directly
@@ -244,7 +258,11 @@ def qrcode_login() -> str:
         for i in range(120):
             time.sleep(2)
             cookies = page.context.cookies()
-            cookie_dict = {c["name"]: c["value"] for c in cookies if "xiaohongshu" in c.get("domain", "")}
+            cookie_dict = {
+                c["name"]: c["value"]
+                for c in cookies
+                if "xiaohongshu" in c.get("domain", "")
+            }
 
             current_session = cookie_dict.get("web_session", "")
             # Login is successful only when web_session is NEW or CHANGED
@@ -262,7 +280,7 @@ def qrcode_login() -> str:
             if i % 15 == 14:
                 print("  Still waiting...")
 
-    raise TimeoutError("QR code login timed out after 4 minutes")
+    raise LoginError("QR code login timed out after 4 minutes")
 
 
 def _display_image_in_terminal(image_path):
@@ -366,11 +384,15 @@ def save_token_cache(token_map: dict[str, str]):
     if TOKEN_CACHE_FILE.exists():
         try:
             existing = json.loads(TOKEN_CACHE_FILE.read_text())
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
 
     existing.update(token_map)
     TOKEN_CACHE_FILE.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
+    try:
+        TOKEN_CACHE_FILE.chmod(0o600)
+    except OSError:
+        logger.debug("Failed to set permissions on %s", TOKEN_CACHE_FILE)
     logger.info("Cached %d xsec_token(s) to %s", len(token_map), TOKEN_CACHE_FILE)
 
 
@@ -388,6 +410,5 @@ def load_xsec_token(note_id: str) -> str:
         if token:
             logger.info("Auto-resolved xsec_token for %s from cache", note_id)
         return token
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return ""
-

@@ -6,10 +6,7 @@ import json
 import os
 import stat
 
-import pytest
-
 from xhs_cli.auth import (
-    REQUIRED_COOKIES,
     _dict_to_cookie_str,
     _has_required_cookies,
     clear_cookies,
@@ -144,3 +141,9 @@ class TestTokenCache:
         save_token_cache({"note1": "old"})
         save_token_cache({"note1": "new"})
         assert load_xsec_token("note1") == "new"
+
+    def test_token_cache_file_permissions(self, tmp_config_dir):
+        save_token_cache({"note1": "token"})
+        token_file = tmp_config_dir / "token_cache.json"
+        mode = stat.S_IMODE(os.stat(token_file).st_mode)
+        assert mode == 0o600
