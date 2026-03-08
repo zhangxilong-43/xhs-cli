@@ -6,6 +6,7 @@ version: "1.0.0"
 tags:
   - xhs
   - xiaohongshu
+  - 小红书
   - rednote
   - social-media
   - cli
