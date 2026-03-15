@@ -159,8 +159,8 @@ def login(ctx: click.Context, qrcode: bool, cookie_str: str | None):
     try:
         cookie = qrcode_login()
         cookie_dict = cookie_str_to_dict(cookie)
-        probe_result = _probe_session_usability(cookie_dict)
-        if probe_result is False:
+        verify_result = _verify_cookies(cookie_dict)
+        if verify_result is False:
             clear_cookies()
             console.print(
                 "[red]❌ Login completed but session is still limited (guest/risk page). "
