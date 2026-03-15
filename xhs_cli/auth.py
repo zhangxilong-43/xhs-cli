@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
 from pathlib import Path
 from typing import Any
 
@@ -163,6 +164,16 @@ def qrcode_login() -> str:
     return _browser_assisted_qrcode_login()
 
 
+def _get_camoufox_os() -> str:
+    """Return the camoufox os string matching the current host platform."""
+    system = platform.system()
+    if system == "Darwin":
+        return "macos"
+    if system == "Linux":
+        return "linux"
+    return "windows"
+
+
 def _browser_assisted_qrcode_login() -> str:
     """Login via QR code using network responses instead of page DOM heuristics."""
     import time
@@ -171,7 +182,7 @@ def _browser_assisted_qrcode_login() -> str:
 
     print("🔑 Starting QR code login...")
 
-    with Camoufox(headless=True) as browser:
+    with Camoufox(headless=True, os=_get_camoufox_os()) as browser:
         page = browser.new_page()
         state = {"last_status": -1}
 

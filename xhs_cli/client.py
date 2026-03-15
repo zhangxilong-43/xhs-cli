@@ -7,6 +7,7 @@ exactly like a real user browsing. This avoids API-level risk control (300011).
 from __future__ import annotations
 
 import logging
+import platform
 import random
 import re
 import time
@@ -118,12 +119,22 @@ class XhsClient:
             return ""
         return str(note_id or "")
 
+    @staticmethod
+    def _get_camoufox_os() -> str:
+        """Return the camoufox os string matching the current host platform."""
+        system = platform.system()
+        if system == "Darwin":
+            return "macos"
+        if system == "Linux":
+            return "linux"
+        return "windows"
+
     def start(self):
         """Launch camoufox and inject cookies."""
         from camoufox.sync_api import Camoufox
 
         logger.info("Starting camoufox browser...")
-        self._camoufox_ctx = Camoufox(headless=True)
+        self._camoufox_ctx = Camoufox(headless=True, os=self._get_camoufox_os())
         self._browser = self._camoufox_ctx.__enter__()
         self._page = self._browser.new_page()
 
